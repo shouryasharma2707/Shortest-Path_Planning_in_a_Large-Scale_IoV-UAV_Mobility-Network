@@ -1,0 +1,121 @@
+# Shortest-Path Planning in a Large-Scale Road Network (Dijkstra vs A\*)
+
+This project compares Dijkstra's algorithm and A\* on subgraphs of a real road network (San Francisco Bay Area, DIMACS 9th Challenge). Both algorithms are implemented from scratch in C++ using a min-priority queue and an adjacency-list graph. No library shortest-path routines are used.
+
+## Dataset
+
+- **Name:** USA road network, San Francisco Bay Area (`BAY`), distance graph
+- **Source:** 9th DIMACS Implementation Challenge, Shortest Paths (2005-2006)
+  - Download page: http://www.diag.uniroma1.it/challenge9/download.shtml
+- **Files used:**
+  - `USA-road-d.BAY.gr.gz`: arcs with distance weights
+  - `USA-road-d.BAY.co.gz`: node coordinates (longitude, latitude in units of 10^-6 degrees)
+- **Full graph:** 321,270 vertices, 800,172 directed arcs
+- **Graph model:** vertex = road intersection or endpoint, edge = directed road segment, weight = road distance from the distance graph
+
+## Repository structure
+
+```
+README.md
+requirements.txt
+preprocessing.py     # parses DIMACS files, builds subgraphs, checks heuristic scale
+main.cpp          # Dijkstra and A* implementation and benchmark
+analysis.py        # summary tables and plots
+results/          # results.csv, paths.csv, summary tables, plots/
+report/           # written report
+```
+
+## Requirements
+
+- **Python:** 3.13.14 (tested with this version)
+- **Python packages:** `pip install -r requirements.txt` (numpy, pandas, matplotlib, tabulate)
+- **C++ compiler with C++17 support:** g++ 15.2.0(MinGW-W64)
+- **OS:** Windows 11
+
+## How to run
+
+Run all commands from the project root.
+
+### 1. Get the dataset
+
+Download `USA-road-d.BAY.gr.gz` and `USA-road-d.BAY.co.gz` from the page above and place them in the project root. You may extract them (giving `.gr` and `.co`) or leave them compressed. `preprocessing.py` reads both forms.
+
+### 2. Preprocess
+
+```
+python preprocessing.py --gr USA-road-d.BAY.gr --co USA-road-d.BAY.co --out data
+```
+
+This writes, for each size N(number of vertices) in {1000, 5000, 10000, 25000, 50000}:
+
+- `data/bay_N.edges.csv`: columns `u,v,w` (0-indexed, renumbered, directed arcs)
+- `data/bay_N.coords.csv`: columns `id,lon,lat` (degrees)
+
+and `data/stats.csv` with vertices, arcs, average out-degree and maximum out-degree. It also prints the heuristic scale `min(w / haversine)` over all arcs.
+
+### 3. Compile and run the algorithms
+
+Visual Studio (x64 Native Tools Command Prompt):
+
+g++ (Linux, macOS, MinGW):
+
+```
+g++ -O2 -std=c++17 main.cpp -o sp
+./sp data results 7.02
+```
+
+Arguments: `<data directory> <output directory> <heuristic scale>`. Run it from the folder that contains `data/`. Use optimization (`/O2` or `-O2`), since it affects the timings.
+
+Output: `results/results.csv` (one row per query and algorithm) and `results/paths.csv` (the complete vertex sequence of every path).
+
+### 4. Analyze
+
+```
+python analysis.py --results results --data data
+```
+
+Output in `results/`: `summary.csv`, `summary.md` (the experiment table), `graph_stats.md` and `plots/` (time, vertices explored, edges examined, and a log-log time plot).
+
+Approximate run times on my machine:
+
+- preprocessing.py: 4.7651796 seconds
+- main.cpp: 8.0545512 seconds
+- analysis.py: 12.0804854 seconds
+
+## Preprocessing details
+
+- DIMACS node IDs are 1-indexed and are shifted to 0-indexed.
+- Coordinates are integers in units of 10^-6 degrees and are divided by 10^6 to give degrees.
+- Subgraphs are the first N vertices reached by BFS from a fixed seed node (0 by default), following arc direction. Only arcs with both endpoints inside the set are kept, and vertices are renumbered 0..N-1.
+- The edge weight is the road distance from the distance graph. Unit: The DIMACS documentation describes the distance weights as metres. Measured against haversine distances computed from the coordinate file, however, w / haversine(m) has a median of 9.99 (1st-99th percentile 9.98-10.01), so the weights are approximately in units of 0.1 m. All reported costs are in these units.
+- Edges are directed. Reported degrees are out-degrees of directed arcs.
+
+## Reproducibility
+
+- BFS seed node: 0 (`--seed` in `preprocessing.py`).
+- Query pairs: generated with `mt19937` seeded with `42 + graph size`, five reachable pairs per size. Unreachable pairs are skipped and counted.
+- A* heuristic: `h(v) = 7.02 * haversine(v, destination)`. The scale 7.02 is `min(w / haversine)` over all arcs (measured 7.0284), rounded down. By construction the heuristic never overestimates and is consistent.
+- Costs, paths, vertices explored and edges examined are deterministic and should match exactly across machines. Execution times depend on hardware.
+- Machine used: CPU: 12th Gen Intel(R) Core(TM) i5-12450HX, RAM:16.0 GB
+
+## Metric definitions
+
+- **Vertices explored:** vertices settled (popped from the queue and not stale) before the destination is reached.
+- **Edges examined:** outgoing edges looked at from settled vertices.
+- **Execution time:** wall-clock time per query, including allocating the distance and visited arrays.
+
+## Expected output (sanity check)
+
+- Full graph: 321,270 vertices and 800,172 arcs.
+- Each subgraph has exactly the requested number of vertices.
+- `analysis.py` reports `Pairs where costs differ: 0`.
+
+## Troubleshooting
+
+- **File not found:** check your working directory and the file names you pass to `--gr` and `--co`.
+- **C++ program cannot open CSV files:** run it from the folder that contains `data/`.
+- **Editor shows errors in standard headers:** this is an IntelliSense issue. Trust the compiler output.
+
+## Citation
+
+9th DIMACS Implementation Challenge, Shortest Paths (2005-2006). http://www.diag.uniroma1.it/challenge9/

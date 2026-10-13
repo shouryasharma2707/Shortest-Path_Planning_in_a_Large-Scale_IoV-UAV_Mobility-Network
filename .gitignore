@@ -1,0 +1,7 @@
+*.gr
+*.co
+*.gz
+*.exe
+__pycache__/
+.vscode/
+data/
